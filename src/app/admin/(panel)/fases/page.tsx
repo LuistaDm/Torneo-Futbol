@@ -1,0 +1,18 @@
+import Link from "next/link";
+import { AdminPageHeader } from "@/components/admin/shell";
+import { createCompetitionPhase } from "@/modules/administration/actions";
+import { prisma } from "@/infrastructure/database/prisma";
+
+export const dynamic = "force-dynamic";
+export default async function PhasesPage({ searchParams }: { searchParams: Promise<{ seasonId?: string }> }) {
+  const { seasonId } = await searchParams;
+  const [seasons, phases] = await Promise.all([
+    prisma.season.findMany({ include: { championship: true }, orderBy: { calendarYear: "desc" } }),
+    prisma.competitionPhase.findMany({ where: seasonId ? { seasonId } : undefined, include: { season: true, _count: { select: { zones: true, teams: true, matchdays: true } } }, orderBy: [{ season: { calendarYear: "desc" } }, { order: "asc" }] }),
+  ]);
+  return <><AdminPageHeader title="Fases y zonas" description="Definí la estructura de cada temporada sin imponer una modalidad fija." />
+    <section className="mb-6 rounded-lg bg-white p-5 shadow-sm"><h2 className="font-semibold">Crear fase</h2>{seasons.length ? <form action={createCompetitionPhase} className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><label className="text-sm">Temporada<select required name="seasonId" defaultValue={seasonId} className="mt-1 w-full rounded border p-2"><option value="">Seleccionar</option>{seasons.map((season) => <option key={season.id} value={season.id}>{season.name}</option>)}</select></label><label className="text-sm">Nombre<input required name="name" placeholder="Liga General" className="mt-1 w-full rounded border p-2" /></label><label className="text-sm">Orden<input required name="order" type="number" min="1" className="mt-1 w-full rounded border p-2" /></label><label className="text-sm">Tipo<select name="type" className="mt-1 w-full rounded border p-2"><option value="REGULAR">Regular / liga</option><option value="CHAMPIONSHIP">Campeonato</option><option value="CONSOLATION">Consuelo</option><option value="SEMIFINAL">Semifinal</option><option value="FINAL">Final</option><option value="OTHER">Otro</option></select></label><button className="self-end rounded bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">Crear fase</button></form> : <p className="mt-3 text-sm text-slate-600">Primero creá una temporada.</p>}</section>
+    <form className="mb-3 flex gap-2"><select name="seasonId" defaultValue={seasonId} className="rounded border bg-white p-2 text-sm"><option value="">Todas las temporadas</option>{seasons.map((season) => <option key={season.id} value={season.id}>{season.name}</option>)}</select><button className="rounded border border-slate-300 px-3 text-sm">Filtrar</button></form>
+    <section className="overflow-hidden rounded-lg bg-white shadow-sm"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">Fase</th><th className="p-3">Temporada</th><th className="p-3">Tipo</th><th className="p-3">Zonas / equipos / fechas</th><th className="p-3" /></tr></thead><tbody>{phases.map((phase) => <tr key={phase.id} className="border-t"><td className="p-3 font-medium">{phase.order}. {phase.name}</td><td className="p-3">{phase.season.name}</td><td className="p-3">{phase.type}</td><td className="p-3">{phase._count.zones} / {phase._count.teams} / {phase._count.matchdays}</td><td className="p-3 text-right"><Link className="text-emerald-700 underline" href={`/admin/fases/${phase.id}`}>Gestionar</Link></td></tr>)}</tbody></table>{phases.length === 0 && <p className="p-5 text-sm text-slate-500">No hay fases con esos filtros.</p>}</section>
+  </>;
+}

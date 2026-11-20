@@ -1,0 +1,439 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SeasonKind {
+  APERTURA
+  CLAUSURA
+}
+
+enum RecordStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum SeasonStatus {
+  PLANNING
+  ACTIVE
+  FINISHED
+}
+
+enum PlayerSeasonStatus {
+  ASSIGNED_TEAM
+  SUBSTITUTE
+}
+
+enum TeamMembershipRole {
+  MEMBER
+  CAPTAIN
+}
+
+enum PhaseType {
+  REGULAR
+  CHAMPIONSHIP
+  CONSOLATION
+  SEMIFINAL
+  FINAL
+  OTHER
+}
+
+enum MatchStatus {
+  SCHEDULED
+  PLAYED
+  POSTPONED
+  CANCELLED
+}
+
+enum MatchdayStatus {
+  PLANNED
+  COMPLETED
+  POSTPONED
+}
+
+enum ParticipationOrigin {
+  ROSTER
+  SUBSTITUTE
+  REPLACEMENT_FROM_OTHER_TEAM
+}
+
+enum CardType {
+  YELLOW
+  BLUE
+  RED
+}
+
+model Championship {
+  id           String   @id @default(cuid())
+  number       Int      @unique
+  calendarYear Int
+  name         String
+  status       RecordStatus @default(DRAFT)
+  seasons      Season[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Season {
+  id                  String   @id @default(cuid())
+  championshipId      String
+  championship        Championship @relation(fields: [championshipId], references: [id], onDelete: Restrict)
+  kind                SeasonKind
+  name                String
+  calendarYear        Int
+  startsOn            DateTime?
+  endsOn              DateTime?
+  status              SeasonStatus @default(PLANNING)
+  competitionFormatId String?
+  competitionFormat   CompetitionFormat? @relation(fields: [competitionFormatId], references: [id], onDelete: SetNull)
+  teams               Team[]
+  playerSeasons       PlayerSeason[]
+  phases              CompetitionPhase[]
+  matchdays           Matchday[]
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([championshipId, kind])
+  @@index([championshipId])
+}
+
+model CompetitionFormat {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  definition  Json?
+  seasons     Season[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CompetitionPhase {
+  id       String    @id @default(cuid())
+  seasonId String
+  season   Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  name     String
+  type     PhaseType
+  order    Int
+  zones    Zone[]
+  matches  Match[]
+  matchdays Matchday[]
+  teams    PhaseTeam[]
+
+  @@unique([seasonId, order])
+}
+
+model Zone {
+  id       String   @id @default(cuid())
+  phaseId  String
+  phase    CompetitionPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  name     String
+  order    Int
+  matches  Match[]
+  teams    PhaseTeam[]
+
+  @@unique([phaseId, name])
+}
+
+model Person {
+  id            String         @id @default(cuid())
+  firstName     String
+  lastName      String
+  displayName   String?
+  dni           String   @unique
+  birthDate     DateTime?
+  email         String?
+  playerSeasons PlayerSeason[]
+  referee       Referee?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model SkillLevel {
+  id            String         @id @default(cuid())
+  value         Int            @unique
+  label         String
+  playerSeasons PlayerSeason[]
+}
+
+model PlayerSeason {
+  id             String              @id @default(cuid())
+  personId       String
+  person         Person              @relation(fields: [personId], references: [id], onDelete: Restrict)
+  seasonId       String
+  season         Season              @relation(fields: [seasonId], references: [id], onDelete: Restrict)
+  skillLevelId   String
+  skillLevel     SkillLevel          @relation(fields: [skillLevelId], references: [id], onDelete: Restrict)
+  status         PlayerSeasonStatus
+  memberships    TeamMembership[]
+  participations MatchParticipation[]
+  absences       MatchReplacement[]  @relation("AbsentPlayer")
+  replacements   MatchReplacement[]  @relation("ReplacementPlayer")
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([personId, seasonId])
+  @@index([seasonId, status])
+}
+
+model Team {
+  id         String           @id @default(cuid())
+  seasonId   String
+  season     Season           @relation(fields: [seasonId], references: [id], onDelete: Restrict)
+  name       String
+  crestFileId String?
+  crestFile  FileObject?      @relation("TeamCrest", fields: [crestFileId], references: [id], onDelete: SetNull)
+  status     RecordStatus     @default(ACTIVE)
+  memberships TeamMembership[]
+  phaseTeams PhaseTeam[]
+  homeMatches Match[]          @relation("HomeTeam")
+  awayMatches Match[]          @relation("AwayTeam")
+  participations MatchParticipation[] @relation("PlayingForTeam")
+  goals      Goal[]            @relation("GoalForTeam")
+  replacements MatchReplacement[] @relation("BeneficiaryTeam")
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@unique([seasonId, name])
+  @@index([seasonId])
+}
+
+model TeamMembership {
+  id             String             @id @default(cuid())
+  teamId         String
+  team           Team               @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  playerSeasonId String
+  playerSeason   PlayerSeason       @relation(fields: [playerSeasonId], references: [id], onDelete: Restrict)
+  role           TeamMembershipRole @default(MEMBER)
+  joinedAt       DateTime           @default(now())
+  leftAt         DateTime?
+
+  @@unique([teamId, playerSeasonId])
+  @@index([playerSeasonId, leftAt])
+}
+
+model PhaseTeam {
+  id      String  @id @default(cuid())
+  phaseId String
+  phase   CompetitionPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  zoneId  String?
+  zone    Zone?   @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  teamId  String
+  team    Team    @relation(fields: [teamId], references: [id], onDelete: Restrict)
+
+  @@unique([phaseId, teamId])
+  @@index([zoneId])
+}
+
+model Matchday {
+  id        String   @id @default(cuid())
+  seasonId  String
+  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Restrict)
+  phaseId   String
+  phase     CompetitionPhase @relation(fields: [phaseId], references: [id], onDelete: Restrict)
+  label     String?
+  order     Int
+  scheduledOn DateTime?
+  status    MatchdayStatus @default(PLANNED)
+  matches   Match[]
+
+  @@unique([phaseId, order])
+  @@index([seasonId])
+}
+
+model Match {
+  id             String   @id @default(cuid())
+  matchdayId     String
+  matchday       Matchday @relation(fields: [matchdayId], references: [id], onDelete: Restrict)
+  phaseId        String
+  phase          CompetitionPhase @relation(fields: [phaseId], references: [id], onDelete: Restrict)
+  zoneId         String?
+  zone           Zone?    @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  homeTeamId     String
+  homeTeam       Team     @relation("HomeTeam", fields: [homeTeamId], references: [id], onDelete: Restrict)
+  awayTeamId     String
+  awayTeam       Team     @relation("AwayTeam", fields: [awayTeamId], references: [id], onDelete: Restrict)
+  scheduledAt    DateTime?
+  status         MatchStatus @default(SCHEDULED)
+  homeScore      Int?
+  awayScore      Int?
+  observations   String?
+  participations MatchParticipation[]
+  replacements   MatchReplacement[]
+  substitutions  MatchSubstitution[]
+  goals          Goal[]
+  cards          Card[]
+  refereeAssignments MatchRefereeAssignment[]
+  officialSheet  OfficialSheet?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([matchdayId])
+  @@index([phaseId, zoneId])
+}
+
+model Referee {
+  id          String   @id @default(cuid())
+  personId    String   @unique
+  person      Person   @relation(fields: [personId], references: [id], onDelete: Restrict)
+  assignments MatchRefereeAssignment[]
+}
+
+model MatchRefereeAssignment {
+  id        String   @id @default(cuid())
+  matchId   String
+  match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  refereeId String
+  referee   Referee  @relation(fields: [refereeId], references: [id], onDelete: Restrict)
+  isPrimary Boolean  @default(true)
+
+  @@unique([matchId, refereeId])
+}
+
+model MatchParticipation {
+  id               String              @id @default(cuid())
+  matchId          String
+  match            Match               @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  playerSeasonId   String
+  playerSeason     PlayerSeason        @relation(fields: [playerSeasonId], references: [id], onDelete: Restrict)
+  playingForTeamId String
+  playingForTeam   Team                @relation("PlayingForTeam", fields: [playingForTeamId], references: [id], onDelete: Restrict)
+  origin           ParticipationOrigin
+  started          Boolean             @default(false)
+  notes            String?
+  goals            Goal[]
+  cards            Card[]
+  enteredSubstitutions MatchSubstitution[] @relation("SubstitutionIn")
+  exitedSubstitutions  MatchSubstitution[] @relation("SubstitutionOut")
+  resultingReplacement MatchReplacement? @relation("ReplacementParticipation")
+  createdAt        DateTime            @default(now())
+
+  @@unique([matchId, playerSeasonId, playingForTeamId])
+  @@index([matchId, playingForTeamId])
+}
+
+model MatchReplacement {
+  id                       String             @id @default(cuid())
+  matchId                  String
+  match                    Match              @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  absentPlayerSeasonId     String
+  absentPlayerSeason       PlayerSeason       @relation("AbsentPlayer", fields: [absentPlayerSeasonId], references: [id], onDelete: Restrict)
+  replacementPlayerSeasonId String
+  replacementPlayerSeason  PlayerSeason       @relation("ReplacementPlayer", fields: [replacementPlayerSeasonId], references: [id], onDelete: Restrict)
+  beneficiaryTeamId        String
+  beneficiaryTeam          Team               @relation("BeneficiaryTeam", fields: [beneficiaryTeamId], references: [id], onDelete: Restrict)
+  participationId          String             @unique
+  participation            MatchParticipation @relation("ReplacementParticipation", fields: [participationId], references: [id], onDelete: Restrict)
+  levelRuleValidated       Boolean            @default(false)
+  reason                   String?
+  createdAt                DateTime           @default(now())
+
+  @@unique([matchId, absentPlayerSeasonId])
+}
+
+model MatchSubstitution {
+  id                   String             @id @default(cuid())
+  matchId              String
+  match                Match              @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  outgoingParticipationId String
+  outgoingParticipation MatchParticipation @relation("SubstitutionOut", fields: [outgoingParticipationId], references: [id], onDelete: Restrict)
+  incomingParticipationId String
+  incomingParticipation MatchParticipation @relation("SubstitutionIn", fields: [incomingParticipationId], references: [id], onDelete: Restrict)
+  occurredAtMinute     Int?
+  observations         String?
+  createdAt            DateTime           @default(now())
+}
+
+model Goal {
+  id              String             @id @default(cuid())
+  matchId         String
+  match           Match              @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  scoringTeamId   String
+  scoringTeam     Team               @relation("GoalForTeam", fields: [scoringTeamId], references: [id], onDelete: Restrict)
+  participationId String
+  participation   MatchParticipation @relation(fields: [participationId], references: [id], onDelete: Restrict)
+  occurredAtMinute Int?
+  observations    String?
+  createdAt       DateTime           @default(now())
+
+  @@index([matchId, scoringTeamId])
+}
+
+model Card {
+  id              String             @id @default(cuid())
+  matchId         String
+  match           Match              @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  participationId String
+  participation   MatchParticipation @relation(fields: [participationId], references: [id], onDelete: Restrict)
+  type            CardType
+  occurredAtMinute Int?
+  blueDurationMinutes Int?
+  observations    String?
+  createdAt       DateTime           @default(now())
+
+  @@index([matchId, type])
+}
+
+model FileObject {
+  id          String   @id @default(cuid())
+  storageKey  String   @unique
+  provider    String
+  mimeType    String
+  byteSize    Int
+  checksum    String?
+  createdAt   DateTime @default(now())
+  teamCrests  Team[]   @relation("TeamCrest")
+  sheetVersions OfficialSheetVersion[]
+}
+
+model OfficialSheet {
+  id        String   @id @default(cuid())
+  matchId   String   @unique
+  match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  versions  OfficialSheetVersion[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OfficialSheetVersion {
+  id              String        @id @default(cuid())
+  officialSheetId String
+  officialSheet   OfficialSheet @relation(fields: [officialSheetId], references: [id], onDelete: Cascade)
+  fileObjectId    String
+  fileObject      FileObject    @relation(fields: [fileObjectId], references: [id], onDelete: Restrict)
+  version         Int
+  isCurrent       Boolean       @default(true)
+  notes           String?
+  createdAt       DateTime      @default(now())
+  aiExtractions   AiSheetExtraction[]
+
+  @@unique([officialSheetId, version])
+}
+
+model AiSheetExtraction {
+  id                     String               @id @default(cuid())
+  officialSheetVersionId String
+  officialSheetVersion   OfficialSheetVersion @relation(fields: [officialSheetVersionId], references: [id], onDelete: Cascade)
+  status                 String               @default("DRAFT")
+  extractedData          Json
+  reviewNotes            String?
+  createdAt              DateTime             @default(now())
+  reviewedAt             DateTime?
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  action     String
+  beforeData Json?
+  afterData  Json?
+  actorLabel String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
